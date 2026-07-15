@@ -1,74 +1,120 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { useAuth } from "../context/AuthContext";
-import logoSrc from "../assets/logo.jpg";
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { LayoutDashboard, Send, CreditCard, BarChart2, Bell } from 'lucide-react';
+import useVaultStore, { api } from '../store/useVaultStore';
+
+const NAV = [
+  { path: '/dashboard', icon: LayoutDashboard, label: 'Home'     },
+  { path: '/transfer',  icon: Send,            label: 'Send'     },
+  { path: '/requests',  icon: Bell,            label: 'Requests' },
+  { path: '/vault',     icon: CreditCard,      label: 'Vault'    },
+  { path: '/analytics', icon: BarChart2,       label: 'Insights' },
+];
 
 export default function Navbar() {
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
-  const [scrolled, setScrolled] = useState(false);
+  const navigate   = useNavigate();
+  const { pathname } = useLocation();
+  const { socket, isAuthenticated } = useVaultStore();
+  const [unread,   setUnread]   = useState(0);
+  const [pending,  setPending]  = useState(0);
 
+  // Fetch initial counts
   useEffect(() => {
-    function onScroll() {
-      setScrolled(window.scrollY > 12);
-    }
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    if (!isAuthenticated) return;
+    api.get('/notifications/unread-count').then(r => setUnread(r.data.count || 0)).catch(() => {});
+    api.get('/requests/pending-count').then(r => setPending(r.data.count || 0)).catch(() => {});
+  }, [isAuthenticated]);
 
-  function handleLogout() {
-    logout();
-    navigate("/");
-  }
+  // Live updates via Socket.IO
+  useEffect(() => {
+    if (!socket) return;
+    const onNotif = ({ unreadCount }) => setUnread(unreadCount);
+    socket.on('notification:new', onNotif);
+    return () => socket.off('notification:new', onNotif);
+  }, [socket]);
 
-  const dashboardPath = user
-    ? { donor: "/donor", volunteer: "/volunteer", recipient: "/shop", admin: "/donor" }[user.role]
-    : "/";
+  const badge = (count, color = 'var(--cyber-blue)') =>
+    count > 0 ? (
+      <div style={{
+        position: 'absolute', top: -2, right: -2,
+        minWidth: 16, height: 16, borderRadius: 8,
+        background: color, color: '#080810',
+        fontSize: '0.58rem', fontWeight: 800,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '0 3px', border: '2px solid #080810', lineHeight: 1
+      }}>{count > 9 ? '9+' : count}</div>
+    ) : null;
 
   return (
-    <motion.nav
-      initial={{ y: -20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.4 }}
-      className={`sticky top-0 z-50 flex items-center justify-between px-6 md:px-10 py-4 transition-all duration-300 ${
-        scrolled ? "backdrop-blur-lg bg-obsidian/70 border-b border-white/10" : "bg-transparent"
-      }`}
-    >
-      <Link to="/" className="flex items-center gap-3 group">
-        <motion.img
-          src={logoSrc}
-          alt="Food Bank logo"
-          whileHover={{ rotate: 8, scale: 1.05 }}
-          transition={{ type: "spring", stiffness: 300, damping: 15 }}
-          className="w-9 h-9 rounded-full shadow-glow"
-        />
-        <span className="font-display text-lg tracking-tight text-mist">
-          Food<span className="text-rescue">Bank</span>
-        </span>
-      </Link>
+    <>
+      {/* Top brand bar */}
+      <div style={{
+        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
+        height: 58, background: 'rgba(8,8,16,0.97)', backdropFilter: 'blur(20px)',
+        borderBottom: '1px solid rgba(0,212,255,0.07)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '0 20px'
+      }}>
+        <span style={{
+          fontFamily: 'var(--font-display)', fontSize: '1rem', fontWeight: 800,
+          letterSpacing: '0.22em',
+          background: 'linear-gradient(135deg, var(--cyber-blue), var(--plasma-purple))',
+          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text'
+        }}>VAULTX</span>
 
-      <div className="flex items-center gap-3">
-        {user ? (
-          <>
-            <Link to={dashboardPath} className="ghost-btn text-sm py-2 px-4">
-              {user.fullName.split(" ")[0]}'s Dashboard
-            </Link>
-            <button onClick={handleLogout} className="text-sm text-muted hover:text-mist transition-colors">
-              Log out
-            </button>
-          </>
-        ) : (
-          <>
-            <Link to="/login" className="ghost-btn text-sm py-2 px-4">
-              Log in
-            </Link>
-            <Link to="/signup" className="glow-btn text-sm py-2 px-4">
-              Get started
-            </Link>
-          </>
-        )}
+        {/* Top-right: notification bell */}
+        <button
+          onClick={() => navigate('/notifications')}
+          style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', padding: 6 }}
+        >
+          <Bell size={20} color={unread > 0 ? 'var(--cyber-blue)' : 'var(--dim-gray)'} />
+          {badge(unread)}
+        </button>
       </div>
-    </motion.nav>
+
+      {/* Bottom tab bar */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+        background: 'rgba(8,8,16,0.97)', backdropFilter: 'blur(20px)',
+        borderTop: '1px solid rgba(0,212,255,0.07)',
+        padding: '10px 0 env(safe-area-inset-bottom, 10px)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-around', maxWidth: 480, margin: '0 auto' }}>
+          {NAV.map(({ path, icon: Icon, label }) => {
+            const isActive = pathname === path || (path !== '/dashboard' && pathname.startsWith(path));
+            const showBadge = (path === '/requests' && pending > 0) || (path === '/notifications' && unread > 0);
+            const badgeCount = path === '/requests' ? pending : unread;
+            const badgeColor = path === '/requests' ? 'var(--gold)' : 'var(--cyber-blue)';
+
+            return (
+              <button key={path} onClick={() => navigate(path)} style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                padding: '4px 16px', background: 'none', border: 'none', cursor: 'pointer',
+                position: 'relative', transition: 'all 0.2s ease'
+              }}>
+                {/* Active indicator */}
+                {isActive && (
+                  <div style={{
+                    position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)',
+                    width: 24, height: 2, background: 'var(--cyber-blue)', borderRadius: 1,
+                    boxShadow: '0 0 8px var(--cyber-blue)'
+                  }} />
+                )}
+                <div style={{ position: 'relative' }}>
+                  <Icon size={21} color={isActive ? 'var(--cyber-blue)' : 'var(--dim-gray)'}
+                    strokeWidth={isActive ? 2.2 : 1.6} />
+                  {showBadge && badge(badgeCount, badgeColor)}
+                </div>
+                <span style={{
+                  fontSize: '0.62rem', fontWeight: isActive ? 700 : 500,
+                  color: isActive ? 'var(--cyber-blue)' : 'var(--dim-gray)',
+                  letterSpacing: '0.06em', textTransform: 'uppercase'
+                }}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
